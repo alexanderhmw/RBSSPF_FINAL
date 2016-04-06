@@ -1,6 +1,7 @@
 #include"rbsspf_motion.cuh"
 
 //====================================================
+//1: init control and particles
 
 __host__
 void hostCalculateMotionControl(TrackerSampleControl & control)
@@ -88,6 +89,7 @@ double hostInitMotionEstimation(int trackernum, std::vector<Tracker> & trackers,
 }
 
 //====================================================
+//2: upsample
 
 __host__ __device__
 void deviceAckermannModel(TrackerParticle & particle, EgoMotion & egomotion)
@@ -235,6 +237,7 @@ void kernelMotionUpSample(TrackerParticle *particles, TrackerSampleControl *cont
 }
 
 //====================================================
+//8: estimate tracker
 
 __host__
 void hostEstimateMotionTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, int beamnum)

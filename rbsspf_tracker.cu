@@ -66,47 +66,48 @@ void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, std:
 {
     cudaMemcpy(d_controls,h_controls.data(),sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
 
+    //Allocate memory
     int tmppnum=pnum*SPN;
-
     MALLOCARRAY(h_beamcount,d_beamcount,int,tmppnum);
     MALLOCARRAY(h_weights,d_weights,double,tmppnum);
     MALLOCARRAY(h_controlids,d_controlids,int,tmppnum);
     MALLOCARRAY(h_sampleids,d_sampleids,int,MRQPN*trackernum);
     MALLOCARRAY(h_wcount,d_wcount,int,MRQPN*trackernum);
 
-    //upsample
+    //2: upsample
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelMotionUpSample<<<blocks,threads>>>(d_particles,d_controls,d_tmpparticles,d_tmpparticles_forward,tmppnum,d_rng,h_egomotion,h_scan.beamnum,d_beamcount);
     }
     cudaDeviceSynchronize();
 
-    //organize beam array
+    //3: collect beamcount and generate beamweight buffer
     int beamcount=hostCollectBeamCount(d_beamcount,h_beamcount.data(),tmppnum);
     TrackerBeamEvaluator * d_beamevaluators;
     cudaMalloc(&d_beamevaluators,sizeof(TrackerBeamEvaluator)*beamcount);
+
+    //4: setup beam array
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelSetupBeamArray<<<blocks,threads>>>(d_beamcount,tmppnum,d_beamevaluators);
     }
 
-    //measure
+    //5: measure scan
     {
         GetKernelDim_1D(blocks,threads,beamcount);
         kernelMeasureScan<<<blocks,threads>>>(d_beamevaluators,beamcount,d_tmpparticles_forward,d_controls,d_scan,h_scan.beamnum,1);
     }
 
-    //accumulate weights
+    //6: accumulate beam weight
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelAccumulateWeight<<<blocks,threads>>>(d_weights,d_controlids,d_tmpparticles,d_beamcount,tmppnum,d_beamevaluators,d_tmpparticles_forward);
     }
     cudaDeviceSynchronize();
 
-    //downsample
+    //7: get down sample ids
     cudaMemcpy(h_weights.data(),d_weights,sizeof(double)*tmppnum,cudaMemcpyDeviceToHost);
     cudaMemcpy(h_controlids.data(),d_controlids,sizeof(int)*tmppnum,cudaMemcpyDeviceToHost);
-
     pnum=0;
     int startid=0;
     while(startid<tmppnum)
@@ -114,6 +115,7 @@ void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, std:
         hostDownSampleIDs(startid,h_controlids,h_weights,tmppnum,h_controls,pnum,h_sampleids,h_wcount,1);
     }
 
+    //8: down sample particles
     cudaMemcpy(d_sampleids,h_sampleids.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
     cudaMemcpy(d_wcount,h_wcount.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
     {
@@ -129,6 +131,7 @@ void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, std:
     }
     cudaDeviceSynchronize();
 
+    //Recycle memory
     CUDAFREE(d_sampleids);
     CUDAFREE(d_wcount);
     CUDAFREE(d_weights);
@@ -141,47 +144,48 @@ void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, st
 {
     cudaMemcpy(d_controls,h_controls.data(),sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
 
+    //Allocate memory
     int tmppnum=pnum*SPN;
-
     MALLOCARRAY(h_beamcount,d_beamcount,int,tmppnum);
     MALLOCARRAY(h_weights,d_weights,double,tmppnum);
     MALLOCARRAY(h_controlids,d_controlids,int,tmppnum);
     MALLOCARRAY(h_sampleids,d_sampleids,int,GRQPN*trackernum);
     MALLOCARRAY(h_wcount,d_wcount,int,GRQPN*trackernum);
 
-    //upsample
+    //2: upsample
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelGeometryUpSample<<<blocks,threads>>>(d_particles,d_controls,d_tmpparticles,tmppnum,d_rng,h_scan.beamnum,d_beamcount);
     }
     cudaDeviceSynchronize();
 
-    //organize beam array
+    //3: collect beamcount and generate beamweight buffer
     int beamcount=hostCollectBeamCount(d_beamcount,h_beamcount.data(),tmppnum);
     TrackerBeamEvaluator * d_beamevaluators;
     cudaMalloc(&d_beamevaluators,sizeof(TrackerBeamEvaluator)*beamcount);
+
+    //4: setup beam array
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelSetupBeamArray<<<blocks,threads>>>(d_beamcount,tmppnum,d_beamevaluators);
     }
 
-    //measure
+    //5: measure scan
     {
         GetKernelDim_1D(blocks,threads,beamcount);
         kernelMeasureScan<<<blocks,threads>>>(d_beamevaluators,beamcount,d_tmpparticles,d_controls,d_scan,h_scan.beamnum,0);
     }
 
-    //accumulate weights
+    //6: accumulate beam weight
     {
         GetKernelDim_1D(blocks,threads,tmppnum);
         kernelAccumulateWeight<<<blocks,threads>>>(d_weights,d_controlids,d_tmpparticles,d_beamcount,tmppnum,d_beamevaluators,NULL);
     }
     cudaDeviceSynchronize();
 
-    //downsample
+    //7: get down sample ids
     cudaMemcpy(h_weights.data(),d_weights,sizeof(double)*tmppnum,cudaMemcpyDeviceToHost);
     cudaMemcpy(h_controlids.data(),d_controlids,sizeof(int)*tmppnum,cudaMemcpyDeviceToHost);
-
     pnum=0;
     int startid=0;
     while(startid<tmppnum)
@@ -189,6 +193,7 @@ void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, st
         hostDownSampleIDs(startid,h_controlids,h_weights,tmppnum,h_controls,pnum,h_sampleids,h_wcount,0);
     }
 
+    //8: down sample particles
     cudaMemcpy(d_sampleids,h_sampleids.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
     cudaMemcpy(d_wcount,h_wcount.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
     {
@@ -197,6 +202,7 @@ void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, st
     }
     cudaDeviceSynchronize();
 
+    //Recycle memory
     CUDAFREE(d_sampleids);
     CUDAFREE(d_wcount);
     CUDAFREE(d_weights);
@@ -210,7 +216,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
     int trackernum=trackers.size();
     if(trackernum<=0) return;
     //==============================
-    //allocate memory
+    //Allocate memory
     MALLOCARRAY(h_controls,d_controls,TrackerSampleControl,trackernum);
     MALLOCARRAY(h_particles,d_particles,TrackerParticle,RQPN*trackernum);
 
@@ -220,10 +226,11 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
     cudaMalloc(&d_tmpparticles_forward,sizeof(TrackerParticle)*MAXPN*trackernum);
 
     int pnum;
+
     //==============================
     //Motion estimate
 
-    //init
+    //1: init control and particles
     double maxmotioniteration=hostInitMotionEstimation(trackernum,trackers,h_controls,pnum,h_particles);
 
     if(maxmotioniteration>=0)
@@ -269,10 +276,11 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
         cudaMemcpy(h_particles.data(),d_particles,sizeof(TrackerParticle)*pnum,cudaMemcpyDeviceToHost);
         hostEstimateMotionTracker(pnum,h_particles,trackers,h_scan.beamnum);
     }
+
     //==============================
     //Geometry estimate
 
-    //init
+    //1: init control and particles
     double maxgeometryiteration=hostInitGeometryEstimation(trackernum,trackers,h_controls,pnum,h_particles);
 
     if(maxgeometryiteration>=0)
@@ -322,6 +330,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
     }
 
     //==============================
+    //Recycle memory
     CUDAFREE(d_controls);
     CUDAFREE(d_particles);
     CUDAFREE(d_tmpparticles);

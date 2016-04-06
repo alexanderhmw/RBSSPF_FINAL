@@ -1,6 +1,7 @@
 #include"rbsspf_geometry.cuh"
 
 //====================================================
+//1: init control and particles
 
 __host__
 void hostCalculateGeometryControl(TrackerSampleControl & control)
@@ -91,6 +92,7 @@ double hostInitGeometryEstimation(int trackernum, std::vector<Tracker> & tracker
 }
 
 //====================================================
+//2: upsample
 
 __global__
 void kernelGeometryUpSample(TrackerParticle * particles, TrackerSampleControl * controls, TrackerParticle * tmpparticles, int tmppnum, thrust::random::minstd_rand * rng, int beamnum, int * beamcount)
@@ -142,6 +144,7 @@ void kernelGeometryUpSample(TrackerParticle * particles, TrackerSampleControl * 
 }
 
 //====================================================
+//8. estimate tracker
 
 __host__
 void hostEstimateGeometryTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int beamnum)

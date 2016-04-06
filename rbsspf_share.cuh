@@ -12,6 +12,8 @@
 #include<random>
 #include<time.h>
 
+//==========================
+
 #define PI 3.14159265359
 #define DEG2RAD(ang) (ang*PI/180)
 
@@ -42,7 +44,6 @@
 #define GetThreadID_2D(xid,yid) int xid=blockDim.x*blockIdx.x+threadIdx.x;int yid=blockDim.y*blockIdx.y+threadIdx.y;
 
 #define DEBUGARRAY(src,dst,type,size) std::vector<type> dst(size); cudaMemcpy(dst.data(),src,sizeof(type)*size,cudaMemcpyDeviceToHost);
-
 #define MALLOCARRAY(h_array,d_array,type,size) std::vector<type> h_array(size); type * d_array; cudaMalloc(&d_array,sizeof(type)*size);
 
 //==========================
@@ -73,9 +74,6 @@
 #define MARGIN2 0.1
 
 //==========================
-
-#define SSPFFLAG 1
-#define REJECTFLAG 0
 
 #define CALRATIO(ratio, vratio, maxratio, maxrange, minrange) \
     ratio=maxrange/minrange; vratio*=ratio; maxratio=ratio>maxratio?ratio:maxratio;
@@ -173,7 +171,7 @@ struct TrackerGeometry
     bool validflag;
 };
 
-struct Tracker //CPU
+struct Tracker
 {
     int id;
     TrackerStatus status;
@@ -185,7 +183,7 @@ struct Tracker //CPU
     double beamcount;
 };
 
-struct TrackerParticle //GPU-core
+struct TrackerParticle
 {
     double weight;
     int beamcount;
@@ -204,7 +202,7 @@ struct TrackerBeamEvaluator
 
 //====================================================
 
-struct LaserScan //CPU
+struct LaserScan
 {
     double timestamp;
     double x,y,theta;
@@ -212,7 +210,7 @@ struct LaserScan //CPU
     double length[MAXBEAMNUM];
 };
 
-struct EgoMotion //GPU-cache
+struct EgoMotion
 {
     bool validflag=0;
     double x,y,theta;
@@ -222,14 +220,19 @@ struct EgoMotion //GPU-cache
 };
 
 //====================================================
+//0 -> Start Track Update ->
+//1 -> Start Motion Track Iteration -> (2) -> 3 -> (4) -> (5) -> (6) -> 7 -> (8) -> (2) -> End Motion Track Iteration -> 9 ->
+//1 -> Start Geometry Track Iteration -> (2) -> 3 -> (4) -> (5) -> (6) -> 7 -> (8) -> (2) -> End Motion Track Iteration -> 9 ->
+//End Track Update
+//# executes on the CPU-side, and (#) executes on the GPU-side.
 
 //0: init rng
 __global__
 void kernelSetupRandomSeed(int * seed, thrust::minstd_rand * rng); //0. RNGNUM
 
 //1: init control and particles (motion & geometry)
-//int hostInitMotionEstimation(TrackerTracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles);
-//int hostInitGeometryEstimation(TrackerTracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles);
+//double hostInitMotionEstimation(int trackernum, std::vector<Tracker> &trackers, std::vector<TrackerSampleControl> &controls, int & pnum, std::vector<TrackerParticle> &particles);
+//double hostInitGeometryEstimation(int trackernum, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<TrackerParticle> & particles);
 
 //2: upsample (motion & geometry)
 //void kernelMotionUpSample(TrackerParticle * particles, TrackerSampleControl * controls, TrackerParticle * tmpparticles, TrackerParticle * tmpparticles_forward, int tmppnum, thrust::minstd_rand * rng, EgoMotion egomotion, int beamnum, int * beamcount);
@@ -260,10 +263,8 @@ __global__
 void kernelDownSample(TrackerParticle * particles, int * sampleids, int * wcount, int pnum, TrackerParticle * tmpparticles); //7. pnum
 
 //9: estimate tracker
-//__host__
-//void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, TrackerTracker * tracker);
-//__host__
-//void hostEstimateGeometryTracker(TrackerParticle * particles, int pnum, TrackerTracker * tracker);
+//void hostEstimateMotionTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, int beamnum);
+//void hostEstimateGeometryTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int beamnum);
 
 //====================================================
 
