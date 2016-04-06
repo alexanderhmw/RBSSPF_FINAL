@@ -9,7 +9,7 @@
 extern "C" void cudaOpenTracker();
 extern "C" void cudaCloseTracker();
 extern "C" void cudaSetLaserScan(LaserScan & scan);
-extern "C" void cudaUpdateTracker(int trackernum, Tracker *trackers);
+extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers);
 
 #endif // TRACKER_CUH
 

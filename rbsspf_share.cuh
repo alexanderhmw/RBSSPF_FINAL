@@ -15,23 +15,41 @@
 #define PI 3.14159265359
 #define DEG2RAD(ang) (ang*PI/180)
 
-#define MINSIGMA 1e-2
-#define UNCERTAINTHRESH 0.4
-#define MAXSIGMA 1e6
+//==========================
 
-#define RQPN 64
+#define RNGNUM 1024
+
 #define SPN 4
-#define MAXPN (SPN*RQPN)
+
+#define MRQPN 256
+#define MAXMPN (SPN*MRQPN)
+
+#define GRQPN 1024
+#define MAXGPN (SPN*GRQPN)
+
+#define RQPN (MRQPN>GRQPN?MRQPN:GRQPN)
+#define MAXPN (MAXMPN>MAXGPN?MAXMPN:MAXGPN)
+
 #define MAXBEAMNUM 2048
 
 #define CUDAFREE(pointer) if(pointer!=NULL){cudaFree(pointer);pointer=NULL;}
 
-#define THREAD_1D 256
+#define THREAD_1D 1024
 #define THREAD_2D 16
 #define GetKernelDim_1D(numBlocks, threadsPerBlock, dim) int numBlocks=(dim+THREAD_1D-1)/THREAD_1D; int threadsPerBlock=THREAD_1D;
 #define GetKernelDim_2D(numBlocks, threadsPerBlock, xdim, ydim) dim3 numBlocks(int((xdim+THREAD_2D-1)/THREAD_2D), int((ydim+THREAD_2D-1)/THREAD_2D)); dim3 threadsPerBlock(THREAD_2D, THREAD_2D);
 #define GetThreadID_1D(id) int id=blockDim.x*blockIdx.x+threadIdx.x;
 #define GetThreadID_2D(xid,yid) int xid=blockDim.x*blockIdx.x+threadIdx.x;int yid=blockDim.y*blockIdx.y+threadIdx.y;
+
+#define DEBUGARRAY(src,dst,type,size) std::vector<type> dst(size); cudaMemcpy(dst.data(),src,sizeof(type)*size,cudaMemcpyDeviceToHost);
+
+#define MALLOCARRAY(h_array,d_array,type,size) std::vector<type> h_array(size); type * d_array; cudaMalloc(&d_array,sizeof(type)*size);
+
+//==========================
+
+#define MINSIGMA 1e-2
+#define UNCERTAINTHRESH 0.4
+#define MAXSIGMA 1e6
 
 #define NEARESTRING 3.35
 #define MINBEAM 2
@@ -69,14 +87,23 @@
 #define MOTIONMAX {DEG2RAD(60),30,0.5,DEG2RAD(90)}
 #define MOTIONPREC {DEG2RAD(1),1,0.001,DEG2RAD(1)}
 #define INITMOTIONOFFSET {DEG2RAD(60),20,0.5,DEG2RAD(90)}
-#define UPDATEMOTIONOFFSET_SSPF {DEG2RAD(30),10,0.15,DEG2RAD(30)}
-#define UPDATEMOTIONOFFSET_PF {DEG2RAD(10),3,0.05,DEG2RAD(10)}
+#define UPDATEMOTIONOFFSET_SSPF {DEG2RAD(30),15,0.3,DEG2RAD(60)}
+#define UPDATEMOTIONOFFSET_PF {DEG2RAD(10),5,0.1,DEG2RAD(20)}
 
 #define GEOMETRYMIN {DEG2RAD(-30),0,0,0,0}
 #define GEOMETRYMAX {DEG2RAD(30),3,3,5,5}
 #define GEOMETRYPREC {DEG2RAD(1),0.1,0.1,0.1,0.1}
 #define INITGEOMETRYOFFSET {DEG2RAD(30),1.5,1.5,2.5,2.5}
 #define UPDATEGEOMETRYOFFSET {DEG2RAD(1),1.5,1.5,2.5,2.5}
+
+//==========================
+
+#define SSPF_SIGMA_X 0.5
+#define SSPF_SIGMA_Y 0.5
+#define SSPF_SIGMA_THETA DEG2RAD(10)
+#define SSPF_BEAMCOUNT 3
+
+//==========================
 
 struct GeometrySampleParam
 {
@@ -143,6 +170,7 @@ struct TrackerGeometry
     int midid,midbeamid;
     int endid,endbeamid;
     int beamcount;
+    bool validflag;
 };
 
 struct Tracker //CPU
@@ -152,12 +180,15 @@ struct Tracker //CPU
     TrackerState mean;
     TrackerState sigma;
     double cx[4],cy[4];
+    int startbeamid,midbeamid,endbeamid;
+    int pfcount;
+    double beamcount;
 };
 
 struct TrackerParticle //GPU-core
 {
     double weight;
-    int count;
+    int beamcount;
     TrackerState state;
     TrackerGeometry geometry;
     int controlid;
@@ -194,7 +225,7 @@ struct EgoMotion //GPU-cache
 
 //0: init rng
 __global__
-void kernelSetupRandomSeed(int * seed, thrust::minstd_rand * rng); //0. MAXPN
+void kernelSetupRandomSeed(int * seed, thrust::minstd_rand * rng); //0. RNGNUM
 
 //1: init control and particles (motion & geometry)
 //int hostInitMotionEstimation(TrackerTracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles);
@@ -218,7 +249,7 @@ void kernelMeasureScan(TrackerBeamEvaluator * beamevaluators, int beamcount, Tra
 
 //6: accumulate beam weight
 __global__
-void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle * tmpparticles, int *beamcount, int tmppnum, TrackerBeamEvaluator * beamevaluators); //5. tmppnum
+void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle * tmpparticles, int *beamcount, int tmppnum, TrackerBeamEvaluator * beamevaluators, TrackerParticle *tmpparticles_forward); //5. tmppnum
 
 //7: get down sample ids
 __host__
@@ -240,7 +271,7 @@ __host__ __device__
 void deviceBuildModel(TrackerParticle & particle, int beamnum);
 
 __host__
-void hostBuildModel(Tracker & tracker);
+void hostBuildModel(Tracker & tracker, int beamnum);
 
 //====================================================
 

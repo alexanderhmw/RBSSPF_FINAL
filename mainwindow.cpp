@@ -310,7 +310,7 @@ MainWindow::MainWindow(QWidget *parent) :
     list=new QListWidget;
     splitter->addWidget(list);
 
-    //list->hide();
+    list->hide();
 
 //    connect(list,SIGNAL(currentRowChanged(int)),this,SLOT(slotShowRect(int)));
 
@@ -329,9 +329,11 @@ MainWindow::MainWindow(QWidget *parent) :
     QString text=QString("timestamp,egox,egoy,egotheta,x,dx,y,dy,theta,dtheta,wl,dwl,wr,dwr,lf,dlf,lb,dlb,a,da,v,dv,k,dk,omega,domega,gx,gy,gtheta\n");
     file.write(text.toUtf8());
 
-    this->setWindowTitle(QString("SSPF_%1").arg(RQPN));
+    this->setWindowTitle(QString("SSPF_%1_%2").arg(MRQPN).arg(GRQPN));
 
     cudaOpenTracker();
+
+    trackers.resize(1);
 }
 
 MainWindow::~MainWindow()
@@ -503,7 +505,9 @@ void MainWindow::slotShowScan()
                 duration<double> elapsed_seconds;
                 start = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
 
-                cudaUpdateTracker(1,&tracker);
+                trackers[0]=tracker;
+                cudaUpdateTracker(trackers);
+                tracker=trackers[0];
 
                 end = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
                 elapsed_seconds = end-start;
@@ -539,23 +543,16 @@ void MainWindow::slotShowScan()
                 duration<double> elapsed_seconds;
                 start = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
 
-                cudaUpdateTracker(1,&tracker);
+                trackers[0]=tracker;
+                cudaUpdateTracker(trackers);
+                tracker=trackers[0];
 
                 end = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
                 elapsed_seconds = end-start;
                 ui->timecost->setValue(int(elapsed_seconds.count()*1000+0.5));
 
-                if(tracker.sigma.x>1||tracker.sigma.y>1||tracker.sigma.theta>DEG2RAD(20))
+                if(tracker.pfcount<20)
                 {
-                    discontinuecount++;
-                }
-                else
-                {                    
-                    discontinuecount/=2;
-                }
-                if(discontinuecount<20)
-                {
-
                     for(int i=0;i<view->path.elementCount();i++)
                     {
                         double tmpx=c*(-view->path.elementAt(i).y)-s*(-view->path.elementAt(i).x)+dx;
@@ -577,6 +574,10 @@ void MainWindow::slotShowScan()
                         view->centerOn(0,0);
                     }
                 }
+                else
+                {
+                    inittrackflag=1;
+                }
             }
         }
         scanlist.pop_front();
@@ -595,12 +596,15 @@ void MainWindow::slotStart(double x, double y, double theta)
     tracker.mean.x=x;tracker.mean.y=y;tracker.mean.theta=theta;
     tracker.mean.wl=1.5;tracker.mean.wr=1.5;tracker.mean.lf=2.5;tracker.mean.lb=2.5;
     tracker.mean.a=0;tracker.mean.v=10;tracker.mean.k=0;
+    tracker.pfcount=0;
 
     milliseconds start,end;
     duration<double> elapsed_seconds;
     start = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
 
-    cudaUpdateTracker(1,&tracker);
+    trackers[0]=tracker;
+    cudaUpdateTracker(trackers);
+    tracker=trackers[0];
 
     end = duration_cast< milliseconds >(system_clock::now().time_since_epoch());
     elapsed_seconds = end-start;
@@ -652,7 +656,7 @@ void MainWindow::showResult()
             .arg(loglaser.x+tracker.mean.x*cos(tracker.mean.theta)-tracker.mean.y*sin(tracker.mean.theta)).arg(loglaser.y+tracker.mean.x*sin(loglaser.theta)+tracker.mean.y*cos(loglaser.theta)).arg(loglaser.theta+tracker.mean.theta);
     file.write(text.toUtf8());
 
-    view->showRect(tracker.cx,tracker.cy,0);
+    view->showRect(tracker.cx,tracker.cy,tracker.status==StatusUpdateTracker_PF);
 
     ui->state->setText(QString("x=%1 (%2) \t y=%3 (%4) \t theta=%5 (%6)")
                        .arg(tracker.mean.x,10,'g',-1,' ').arg(tracker.sigma.x,10,'g',-1,' ')
@@ -664,7 +668,7 @@ void MainWindow::showResult()
                           .arg(tracker.mean.lf,10,'g',-1,' ').arg(tracker.sigma.lf,10,'g',-1,' ')
                           .arg(tracker.mean.lb,10,'g',-1,' ').arg(tracker.sigma.lb,10,'g',-1,' ')
                           );
-    ui->motion->setText(QString("a=%1 \t v=%2 \t k=%3")
+    ui->motion->setText(QString("a=%1 \t v=%2 \t k=%3 \t count=%4")
                         .arg(tracker.mean.a,10,'g',-1,' ').arg(tracker.mean.v,10,'g',-1,' ')
-                        .arg(tracker.mean.k,10,'g',-1,' '));
+                        .arg(tracker.mean.k,10,'g',-1,' ').arg(tracker.beamcount));
 }

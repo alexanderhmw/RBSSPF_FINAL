@@ -4,7 +4,7 @@ __global__
 void kernelSetupRandomSeed(int *seed, thrust::random::minstd_rand *rng)
 {
     GetThreadID_1D(rid);
-    if(rid>=MAXPN) return;
+    if(rid>=RNGNUM) return;
     rng[rid]=thrust::minstd_rand(seed[rid]);
     return;
 }
@@ -78,7 +78,12 @@ void kernelMeasureScan(TrackerBeamEvaluator *beamevaluators, int beamcount, Trac
 
     double delta,w1,w2;
     double tmplogweight;
-    if(length<=l0)
+    if(l<=NEARESTRING)
+    {
+        tmplogweight=0;
+        beamevaluators[measureid].validflag=0;
+    }
+    else if(length<=l0)
     {
 //        tmplogweight=0;
         delta=length-l0;
@@ -117,24 +122,23 @@ void kernelMeasureScan(TrackerBeamEvaluator *beamevaluators, int beamcount, Trac
 }
 
 __global__
-void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle * tmpparticles, int *beamcount, int tmppnum, TrackerBeamEvaluator *beamevaluators)
+void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle * tmpparticles, int *beamcount, int tmppnum, TrackerBeamEvaluator *beamevaluators, TrackerParticle * tmpparticles_forward)
 {
     GetThreadID_1D(tmppid);
     if(tmppid>=tmppnum) return;
 
-    weights[tmppid]=0;
     controlids[tmppid]=tmpparticles[tmppid].controlid;
+    tmpparticles[tmppid].beamcount=0;
+    weights[tmppid]=tmpparticles[tmppid].geometry.validflag?0:-100;
 
     int startid=tmppid>0?beamcount[tmppid-1]:0;
     int endid=beamcount[tmppid];
-    if(startid==endid) return;
-
-    tmpparticles[tmppid].count=0;
     for(int i=startid;i<endid;i++)
     {
         weights[tmppid]+=beamevaluators[i].weight;
-        tmpparticles[tmppid].count+=beamevaluators[i].validflag?1:0;
+        tmpparticles[tmppid].beamcount+=beamevaluators[i].validflag?1:0;
     }
+    if(tmpparticles_forward!=NULL) tmpparticles_forward[tmppid].beamcount=tmpparticles[tmppid].beamcount;
 }
 
 //====================================================
@@ -180,7 +184,14 @@ int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmp
         }
 
         int rqpn=endid-startid;
-        rqpn=rqpn<RQPN?rqpn:RQPN;
+        if(motionflag)
+        {
+            rqpn=rqpn<MRQPN?rqpn:MRQPN;
+        }
+        else
+        {
+            rqpn=rqpn<GRQPN?rqpn:GRQPN;
+        }
 
         double step=1.0/rqpn;
         int accuracy=1e6;
@@ -255,6 +266,7 @@ void deviceBuildModel(TrackerParticle & particle, int beamnum)
         particle.geometry.sa[i]=(particle.geometry.cx[i]*particle.geometry.dy[i]-particle.geometry.cy[i]*particle.geometry.dx[i])/particle.geometry.cn[i];
     }
 
+    particle.geometry.validflag=0;
     double density=2*PI/beamnum;
     for(int i=0;i<4;i++)
     {
@@ -268,33 +280,52 @@ void deviceBuildModel(TrackerParticle & particle, int beamnum)
             particle.geometry.midid=(i+2)%4;
             double midbear=atan2(particle.geometry.cy[particle.geometry.midid],particle.geometry.cx[particle.geometry.midid])+PI;
             particle.geometry.midbeamid=int(midbear/density);
+
+            particle.geometry.validflag=1;
         }
         else if(particle.geometry.sa[i]>0&&particle.geometry.sa[j]<=0)
         {
             particle.geometry.endid=(i+1)%4;
             double endbear=atan2(particle.geometry.cy[particle.geometry.endid],particle.geometry.cx[particle.geometry.endid])+PI;
             particle.geometry.endbeamid=int(endbear/density);
+
+            particle.geometry.validflag=1;
         }
     }
-    if(particle.geometry.midbeamid<particle.geometry.startbeamid)
+    if(particle.geometry.validflag)
     {
-        particle.geometry.midbeamid+=beamnum;
+        if(particle.geometry.midbeamid<particle.geometry.startbeamid)
+        {
+            particle.geometry.midbeamid+=beamnum;
+        }
+        if(particle.geometry.endbeamid<particle.geometry.startbeamid)
+        {
+            particle.geometry.endbeamid+=beamnum;
+        }
+        particle.geometry.beamcount=particle.geometry.endbeamid-particle.geometry.startbeamid+1;
     }
-    if(particle.geometry.endbeamid<particle.geometry.startbeamid)
+    else
     {
-        particle.geometry.endbeamid+=beamnum;
+        particle.geometry.startid=-1;particle.geometry.startbeamid=-1;
+        particle.geometry.midid=-1;particle.geometry.midbeamid=-1;
+        particle.geometry.endid=-1;particle.geometry.endbeamid=-1;
+        particle.geometry.beamcount=0;
     }
-    particle.geometry.beamcount=particle.geometry.endbeamid-particle.geometry.startbeamid+1;
 }
 
 __host__
-void hostBuildModel(Tracker & tracker)
+void hostBuildModel(Tracker & tracker, int beamnum)
 {
-    double c=cos(tracker.mean.theta);
-    double s=sin(tracker.mean.theta);
+    TrackerParticle particle;
+    particle.state=tracker.mean;
+    deviceBuildModel(particle,beamnum);
 
-    tracker.cx[0]=c*tracker.mean.lf-s*tracker.mean.wl+tracker.mean.x; tracker.cy[0]=s*tracker.mean.lf+c*tracker.mean.wl+tracker.mean.y;
-    tracker.cx[1]=c*tracker.mean.lf+s*tracker.mean.wr+tracker.mean.x; tracker.cy[1]=s*tracker.mean.lf-c*tracker.mean.wr+tracker.mean.y;
-    tracker.cx[2]=-c*tracker.mean.lb+s*tracker.mean.wr+tracker.mean.x; tracker.cy[2]=-s*tracker.mean.lb-c*tracker.mean.wr+tracker.mean.y;
-    tracker.cx[3]=-c*tracker.mean.lb-s*tracker.mean.wl+tracker.mean.x; tracker.cy[3]=-s*tracker.mean.lb+c*tracker.mean.wl+tracker.mean.y;
+    tracker.cx[0]=particle.geometry.cx[0];tracker.cy[0]=particle.geometry.cy[0];
+    tracker.cx[1]=particle.geometry.cx[1];tracker.cy[1]=particle.geometry.cy[1];
+    tracker.cx[2]=particle.geometry.cx[2];tracker.cy[2]=particle.geometry.cy[2];
+    tracker.cx[3]=particle.geometry.cx[3];tracker.cy[3]=particle.geometry.cy[3];
+
+    tracker.startbeamid=particle.geometry.startbeamid;
+    tracker.midbeamid=particle.geometry.midbeamid;
+    tracker.endbeamid=particle.geometry.endbeamid;
 }

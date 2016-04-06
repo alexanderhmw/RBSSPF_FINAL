@@ -7,7 +7,7 @@
 
 //1: init control and particles
 __host__
-double hostInitGeometryEstimation(Tracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles, int &pnum);
+double hostInitGeometryEstimation(int trackernum, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<TrackerParticle> & particles);
 
 //2: upsample
 __global__
@@ -15,7 +15,7 @@ void kernelGeometryUpSample(TrackerParticle * particles, TrackerSampleControl * 
 
 //8. estimate tracker
 __host__
-void hostEstimateGeometryTracker(TrackerParticle * particles, int pnum, Tracker * trackers, TrackerSampleControl * controls);
+void hostEstimateGeometryTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int beamnum);
 
 //====================================================
 

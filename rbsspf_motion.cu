@@ -33,6 +33,7 @@ bool hostInitializeMotion(Tracker & tracker, TrackerSampleControl & control)
         {
             control.pfflag=0;
             control.motionoffset=INITMOTIONOFFSET;
+            control.pnum=1;
             hostCalculateMotionControl(control);
         }
         break;
@@ -40,6 +41,7 @@ bool hostInitializeMotion(Tracker & tracker, TrackerSampleControl & control)
         {
             control.pfflag=0;
             control.motionoffset=UPDATEMOTIONOFFSET_SSPF;
+            control.pnum=1;
             hostCalculateMotionControl(control);
         }
         break;
@@ -47,12 +49,14 @@ bool hostInitializeMotion(Tracker & tracker, TrackerSampleControl & control)
         {
             control.pfflag=1;
             control.motionoffset=UPDATEMOTIONOFFSET_PF;
+            control.pnum=MRQPN;
             control.motioniteration=0;
         }
         break;
     default:
         {
             control.motioniteration=-1;
+            control.pnum=0;
         }
         break;
     }
@@ -60,7 +64,7 @@ bool hostInitializeMotion(Tracker & tracker, TrackerSampleControl & control)
 }
 
 __host__
-double hostInitMotionEstimation(Tracker * trackers, int trackernum, TrackerSampleControl *controls, TrackerParticle * particles, int & pnum)
+double hostInitMotionEstimation(int trackernum, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<TrackerParticle> & particles)
 {
     double maxmotioniteration=-1;
     pnum=0;
@@ -68,13 +72,16 @@ double hostInitMotionEstimation(Tracker * trackers, int trackernum, TrackerSampl
     {
         controls[i].id=i;
         if(hostInitializeMotion(trackers[i],controls[i]))
-        {            
+        {
             if(maxmotioniteration<controls[i].motioniteration) maxmotioniteration=controls[i].motioniteration;
-            particles[pnum].state=trackers[i].mean;
-            particles[pnum].controlid=i;
-            particles[pnum].weight=0;
-            particles[pnum].count=0;
-            pnum++;
+            for(int j=0;j<controls[i].pnum;j++)
+            {
+                particles[pnum].state=trackers[i].mean;
+                particles[pnum].controlid=i;
+                particles[pnum].weight=0;
+                particles[pnum].beamcount=0;
+                pnum++;
+            }
         }
     }
     return maxmotioniteration;
@@ -131,7 +138,7 @@ void kernelMotionUpSample(TrackerParticle *particles, TrackerSampleControl *cont
     if(tmppid>=tmppnum) return;
     int pid=int(tmppid/SPN);
     int cid=particles[pid].controlid;
-    int rid=tmppid%MAXPN;
+    int rid=tmppid%RNGNUM;
 
     TrackerSampleControl control=controls[cid];
     TrackerParticle particle=particles[pid];
@@ -190,19 +197,19 @@ void kernelMotionUpSample(TrackerParticle *particles, TrackerSampleControl *cont
         if(particle.state.k!=0)
         {
             R=1/fabs(particle.state.k);
-            phi=atan2(4.0,R);
+            phi=atan2(6.0,R);
         }
 
         double amin,amax;
         if(particle.state.omega>0)
         {
-            amin=DEG2RAD(-20);
+            amin=DEG2RAD(-30);
             amax=phi;
             amax=amax>amin?amax:amin;
         }
         else if(particle.state.omega<0)
         {
-            amax=DEG2RAD(20);
+            amax=DEG2RAD(30);
             amin=-phi;
             amin=amin<amax?amin:amax;
         }
@@ -222,14 +229,16 @@ void kernelMotionUpSample(TrackerParticle *particles, TrackerSampleControl *cont
 
     tmpparticles_forward[tmppid]=particle;
 
+    tmpparticles[tmppid].geometry.validflag=particle.geometry.validflag;
+
     beamcount[tmppid]=particle.geometry.beamcount;
 }
 
 //====================================================
 
 __host__
-void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *trackers)
-{    
+void hostEstimateMotionTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, int beamnum)
+{
     TrackerState minstate;
     TrackerState maxstate;
     double weightsum;
@@ -248,6 +257,7 @@ void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *t
                 trackers[cid].mean.v/=weightsum;
                 trackers[cid].mean.k/=weightsum;
                 trackers[cid].mean.omega/=weightsum;
+                trackers[cid].beamcount/=weightsum;
 
                 trackers[cid].sigma.x=std::max(trackers[cid].mean.x-minstate.x,maxstate.x-trackers[cid].mean.x);
                 trackers[cid].sigma.y=std::max(trackers[cid].mean.y-minstate.y,maxstate.y-trackers[cid].mean.y);
@@ -257,14 +267,24 @@ void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *t
                 trackers[cid].sigma.k=std::max(trackers[cid].mean.k-minstate.k,maxstate.k-trackers[cid].mean.k);
                 trackers[cid].sigma.omega=std::max(trackers[cid].mean.omega-minstate.omega,maxstate.omega-trackers[cid].mean.omega);
 
-                if(trackers[cid].sigma.x<0.5&&trackers[cid].sigma.y<0.5&&trackers[cid].sigma.theta<DEG2RAD(10))
+                if(trackers[cid].sigma.x<SSPF_SIGMA_X&&trackers[cid].sigma.y<SSPF_SIGMA_Y&&trackers[cid].sigma.theta<SSPF_SIGMA_THETA)
                 {
+                    if(trackers[cid].beamcount>SSPF_BEAMCOUNT)
+                    {
+                        trackers[cid].pfcount/=2;
+                    }
+                    else
+                    {
+                        trackers[cid].pfcount++;
+                    }
                     trackers[cid].status=StatusUpdateTracker_SSPF;
                 }
                 else
                 {
+                    trackers[cid].pfcount++;
                     trackers[cid].status=StatusUpdateTracker_PF;
                 }
+                hostBuildModel(trackers[cid],beamnum);
             }
             if(i<pnum)
             {
@@ -276,6 +296,7 @@ void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *t
                 trackers[cid].mean.v=0;
                 trackers[cid].mean.k=0;
                 trackers[cid].mean.omega=0;
+                trackers[cid].beamcount=0;
                 weightsum=0;
                 minstate=particles[i].state;
                 maxstate=particles[i].state;
@@ -285,6 +306,9 @@ void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *t
                 break;
             }
         }
+
+        weightsum+=particles[i].weight;
+
         trackers[cid].mean.x+=particles[i].state.x*particles[i].weight;
         trackers[cid].mean.y+=particles[i].state.y*particles[i].weight;
         trackers[cid].mean.theta+=particles[i].state.theta*particles[i].weight;
@@ -292,7 +316,7 @@ void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker *t
         trackers[cid].mean.v+=particles[i].state.v*particles[i].weight;
         trackers[cid].mean.k+=particles[i].state.k*particles[i].weight;
         trackers[cid].mean.omega+=particles[i].state.omega;
-        weightsum+=particles[i].weight;
+        trackers[cid].beamcount+=particles[i].beamcount*particles[i].weight;
 
         minstate.x=minstate.x<particles[i].state.x?minstate.x:particles[i].state.x;
         maxstate.x=maxstate.x>particles[i].state.x?maxstate.x:particles[i].state.x;

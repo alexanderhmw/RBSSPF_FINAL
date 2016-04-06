@@ -105,6 +105,7 @@ public:
     ros::Time timestamp;
     int seq;
     LaserScan loglaser;
+    std::vector<Tracker> trackers;
 public:
     Tracker tracker;
 public:

@@ -46,6 +46,7 @@ bool hostInitializeGeometry(Tracker & tracker, TrackerSampleControl & control)
     case StatusInitGeometry:
         {
             control.geometryoffset=INITGEOMETRYOFFSET;
+            control.pnum=1;
             hostCalculateGeometryControl(control);
             control.geometrymin.theta=tracker.mean.theta-control.geometryoffset.theta;
             control.geometrymax.theta=tracker.mean.theta+control.geometryoffset.theta;
@@ -54,12 +55,14 @@ bool hostInitializeGeometry(Tracker & tracker, TrackerSampleControl & control)
     case StatusUpdateTracker_SSPF:
         {
             hostSetupGeometryOffset(tracker.sigma,control);
+            control.pnum=1;
             hostCalculateGeometryControl(control);
         }
         break;
     default:
         {
             control.geometryiteration=-1;
+            control.pnum=0;
         }
         break;
     }
@@ -67,7 +70,7 @@ bool hostInitializeGeometry(Tracker & tracker, TrackerSampleControl & control)
 }
 
 __host__
-double hostInitGeometryEstimation(Tracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles, int & pnum)
+double hostInitGeometryEstimation(int trackernum, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<TrackerParticle> & particles)
 {
     double maxgeometryiteration=-1;
     pnum=0;
@@ -80,7 +83,7 @@ double hostInitGeometryEstimation(Tracker * trackers, int trackernum, TrackerSam
             particles[pnum].state=trackers[i].mean;
             particles[pnum].controlid=i;
             particles[pnum].weight=0;
-            particles[pnum].count=0;
+            particles[pnum].beamcount=0;
             pnum++;
         }
     }
@@ -96,7 +99,7 @@ void kernelGeometryUpSample(TrackerParticle * particles, TrackerSampleControl * 
     if(tmppid>=tmppnum) return;
     int pid=int(tmppid/SPN);
     int cid=particles[pid].controlid;
-    int rid=tmppid%MAXPN;
+    int rid=tmppid%RNGNUM;
 
     TrackerSampleControl control=controls[cid];
     TrackerParticle particle=particles[pid];
@@ -141,7 +144,7 @@ void kernelGeometryUpSample(TrackerParticle * particles, TrackerSampleControl * 
 //====================================================
 
 __host__
-void hostEstimateGeometryTracker(TrackerParticle *particles, int pnum, Tracker *trackers, TrackerSampleControl * controls)
+void hostEstimateGeometryTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, std::vector<TrackerSampleControl> & controls, int beamnum)
 {
     TrackerState minstate;
     TrackerState maxstate;
@@ -167,6 +170,7 @@ void hostEstimateGeometryTracker(TrackerParticle *particles, int pnum, Tracker *
                 trackers[cid].mean.wr/=weightsum;
                 trackers[cid].mean.lf/=weightsum;
                 trackers[cid].mean.lb/=weightsum;
+                trackers[cid].beamcount/=weightsum;
 
                 trackers[cid].sigma.wl=std::max(trackers[cid].mean.wl-minstate.wl,maxstate.wl-trackers[cid].mean.wl);
                 trackers[cid].sigma.wr=std::max(trackers[cid].mean.wr-minstate.wr,maxstate.wr-trackers[cid].mean.wr);
@@ -202,7 +206,7 @@ void hostEstimateGeometryTracker(TrackerParticle *particles, int pnum, Tracker *
                     trackers[cid].sigma.lf=trackers[cid].sigma.lf>MINSIGMA?trackers[cid].sigma.lf:MINSIGMA;
                     trackers[cid].sigma.lb=trackers[cid].sigma.lb>MINSIGMA?trackers[cid].sigma.lb:MINSIGMA;
                 }
-                hostBuildModel(trackers[cid]);
+                hostBuildModel(trackers[cid],beamnum);
             }
             if(i<pnum)
             {
@@ -222,6 +226,7 @@ void hostEstimateGeometryTracker(TrackerParticle *particles, int pnum, Tracker *
                 trackers[cid].mean.wr=0;
                 trackers[cid].mean.lf=0;
                 trackers[cid].mean.lb=0;
+                trackers[cid].beamcount=0;
 
                 weightsum=0;
                 minstate=particles[i].state;
@@ -246,6 +251,7 @@ void hostEstimateGeometryTracker(TrackerParticle *particles, int pnum, Tracker *
         trackers[cid].mean.wr+=particles[i].state.wr*particles[i].weight;
         trackers[cid].mean.lf+=particles[i].state.lf*particles[i].weight;
         trackers[cid].mean.lb+=particles[i].state.lb*particles[i].weight;
+        trackers[cid].beamcount+=particles[i].beamcount*particles[i].weight;
 
         minstate.wl=minstate.wl<particles[i].state.wl?minstate.wl:particles[i].state.wl;
         maxstate.wl=maxstate.wl>particles[i].state.wl?maxstate.wl:particles[i].state.wl;

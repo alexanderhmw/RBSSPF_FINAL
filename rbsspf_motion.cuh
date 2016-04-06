@@ -7,7 +7,7 @@
 
 //1: init control and particles
 __host__
-double hostInitMotionEstimation(Tracker * trackers, int trackernum, TrackerSampleControl * controls, TrackerParticle * particles, int & pnum);
+double hostInitMotionEstimation(int trackernum, std::vector<Tracker> &trackers, std::vector<TrackerSampleControl> &controls, int & pnum, std::vector<TrackerParticle> &particles);
 
 //2: upsample
 __global__
@@ -15,7 +15,7 @@ void kernelMotionUpSample(TrackerParticle * particles, TrackerSampleControl * co
 
 //8: estimate tracker
 __host__
-void hostEstimateMotionTracker(TrackerParticle * particles, int pnum, Tracker * trackers);
+void hostEstimateMotionTracker(int pnum, std::vector<TrackerParticle> & particles, std::vector<Tracker> & trackers, int beamnum);
 
 //====================================================
 
