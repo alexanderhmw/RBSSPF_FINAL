@@ -253,11 +253,11 @@ void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle 
 
 //7: get down sample ids
 __host__
-int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmppnum, TrackerSampleControl * controls, int * sampleids, int * wcount, bool motionflag); //6.
+void hostDownSampleIDs(int & startid, std::vector<int> & controlids, std::vector<double> & weights, int tmppnum, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<int> & sampleids, std::vector<int> & wcount, bool motionflag); //6.
 
 //8: down sample particles
 __global__
-void kernelDownSample(TrackerParticle * particles, int * sampleids, int *wcount, int pnum, TrackerParticle * tmpparticles); //7. pnum
+void kernelDownSample(TrackerParticle * particles, int * sampleids, int * wcount, int pnum, TrackerParticle * tmpparticles); //7. pnum
 
 //9: estimate tracker
 //__host__

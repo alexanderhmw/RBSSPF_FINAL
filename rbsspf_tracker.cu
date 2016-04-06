@@ -62,9 +62,9 @@ extern "C" void cudaSetLaserScan(LaserScan & scan)
 
 //==============================================================================
 
-void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, TrackerSampleControl * h_controls, TrackerSampleControl * d_controls, TrackerParticle * d_tmpparticles, TrackerParticle * d_tmpparticles_forward, bool forwardflag)
+void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, std::vector<TrackerSampleControl> & h_controls, TrackerSampleControl * d_controls, TrackerParticle * d_tmpparticles, TrackerParticle * d_tmpparticles_forward, bool forwardflag)
 {
-    cudaMemcpy(d_controls,h_controls,sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
+    cudaMemcpy(d_controls,h_controls.data(),sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
 
     int tmppnum=pnum*SPN;
 
@@ -111,8 +111,7 @@ void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, Trac
     int startid=0;
     while(startid<tmppnum)
     {
-        int rqpn=hostDownSampleIDs(startid,h_controlids.data(),h_weights.data(),tmppnum,h_controls,h_sampleids.data()+pnum,h_wcount.data()+pnum,1);
-        pnum+=rqpn;
+        hostDownSampleIDs(startid,h_controlids,h_weights,tmppnum,h_controls,pnum,h_sampleids,h_wcount,1);
     }
 
     cudaMemcpy(d_sampleids,h_sampleids.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
@@ -138,9 +137,9 @@ void SSPF_Motion(int & pnum, TrackerParticle * d_particles, int trackernum, Trac
     CUDAFREE(d_beamevaluators);
 }
 
-void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, TrackerSampleControl * h_controls, TrackerSampleControl * d_controls, TrackerParticle * d_tmpparticles)
+void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, std::vector<TrackerSampleControl> & h_controls, TrackerSampleControl * d_controls, TrackerParticle * d_tmpparticles)
 {
-    cudaMemcpy(d_controls,h_controls,sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
+    cudaMemcpy(d_controls,h_controls.data(),sizeof(TrackerSampleControl)*trackernum,cudaMemcpyHostToDevice);
 
     int tmppnum=pnum*SPN;
 
@@ -187,8 +186,7 @@ void SSPF_Geometry(int & pnum, TrackerParticle * d_particles, int trackernum, Tr
     int startid=0;
     while(startid<tmppnum)
     {
-        int rqpn=hostDownSampleIDs(startid,h_controlids.data(),h_weights.data(),tmppnum,h_controls,h_sampleids.data()+pnum,h_wcount.data()+pnum,0);
-        pnum+=rqpn;
+        hostDownSampleIDs(startid,h_controlids,h_weights,tmppnum,h_controls,pnum,h_sampleids,h_wcount,0);
     }
 
     cudaMemcpy(d_sampleids,h_sampleids.data(),sizeof(int)*pnum,cudaMemcpyHostToDevice);
@@ -236,7 +234,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
         for(int i=1;i<=maxmotioniteration;i++)
         {
             //SSPF_Motion
-            SSPF_Motion(pnum,d_particles,trackernum,h_controls.data(),d_controls,d_tmpparticles,d_tmpparticles_forward,0);
+            SSPF_Motion(pnum,d_particles,trackernum,h_controls,d_controls,d_tmpparticles,d_tmpparticles_forward,0);
 
             //update controls
             for(int j=0;j<trackernum;j++)
@@ -265,7 +263,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
         }
 
         //SSPF_Motion
-        SSPF_Motion(pnum,d_particles,trackernum,h_controls.data(),d_controls,d_tmpparticles,d_tmpparticles_forward,1);
+        SSPF_Motion(pnum,d_particles,trackernum,h_controls,d_controls,d_tmpparticles,d_tmpparticles_forward,1);
 
         //Motion results
         cudaMemcpy(h_particles.data(),d_particles,sizeof(TrackerParticle)*pnum,cudaMemcpyDeviceToHost);
@@ -285,7 +283,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
         for(int i=1;i<=maxgeometryiteration;i++)
         {
             //SSPF_Geometry
-            SSPF_Geometry(pnum,d_particles,trackernum,h_controls.data(),d_controls,d_tmpparticles);
+            SSPF_Geometry(pnum,d_particles,trackernum,h_controls,d_controls,d_tmpparticles);
 
             //update controls
             for(int j=0;j<trackernum;j++)
@@ -316,7 +314,7 @@ extern "C" void cudaUpdateTracker(std::vector<Tracker> & trackers)
         }
 
         //SSPF_Geometry
-        SSPF_Geometry(pnum,d_particles,trackernum,h_controls.data(),d_controls,d_tmpparticles);
+        SSPF_Geometry(pnum,d_particles,trackernum,h_controls,d_controls,d_tmpparticles);
 
         //Geometry results
         cudaMemcpy(h_particles.data(),d_particles,sizeof(TrackerParticle)*pnum,cudaMemcpyDeviceToHost);

@@ -85,20 +85,18 @@ void kernelMeasureScan(TrackerBeamEvaluator *beamevaluators, int beamcount, Trac
     }
     else if(length<=l0)
     {
-//        tmplogweight=0;
         delta=length-l0;
         w1=WEIGHT0-WEIGHT0;
         w2=WEIGHT1-WEIGHT0;
-        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/0.01));
+        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/SIGMA));
         beamevaluators[measureid].validflag=0;
     }
     else if(length<=l1)
     {
-//        tmplogweight=WEIGHT1-WEIGHT0;
         delta=length-l1;
         w1=WEIGHT1-WEIGHT0;
         w2=WEIGHT2-WEIGHT0;
-        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/0.01));
+        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/SIGMA));
         beamevaluators[measureid].validflag=0;
     }
     else if(length<=l3)
@@ -106,16 +104,15 @@ void kernelMeasureScan(TrackerBeamEvaluator *beamevaluators, int beamcount, Trac
         delta=length-l2;
         w1=WEIGHT2-WEIGHT0;
         w2=2*w1;
-        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/0.01));
+        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/SIGMA));
         beamevaluators[measureid].validflag=1;
     }
     else
     {
-//        tmplogweight=WEIGHT3-WEIGHT0;
         delta=length-l3;
         w1=WEIGHT3-WEIGHT0;
         w2=WEIGHT2-WEIGHT0;
-        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/0.01));
+        tmplogweight=(w1+(w2-w1)*exp(-delta*delta/SIGMA));
         beamevaluators[measureid].validflag=0;
     }
     beamevaluators[measureid].weight=tmplogweight/anneal;
@@ -144,7 +141,7 @@ void kernelAccumulateWeight(double * weights, int * controlids, TrackerParticle 
 //====================================================
 
 __host__
-int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmppnum, TrackerSampleControl * controls, int * sampleids, int * wcount, bool motionflag)
+void hostDownSampleIDs(int & startid, std::vector<int> & controlids, std::vector<double> & weights, int tmppnum, std::vector<TrackerSampleControl> & controls, int & pnum, std::vector<int> & sampleids, std::vector<int> & wcount, bool motionflag)
 {
     int cid=controlids[startid];
 
@@ -165,8 +162,8 @@ int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmp
         int rqpn=(endid-startid)/SPN;
         for(int i=0;i<rqpn;i++)
         {
-            sampleids[i]=startid+i*SPN;
-            wcount[i]=0;
+            sampleids[pnum+i]=startid+i*SPN;
+            wcount[pnum+i]=0;
         }
         controls[cid].pnum=rqpn;
     }
@@ -211,15 +208,15 @@ int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmp
                 }
                 else
                 {
-                    if(controls[cid].pnum==0||j!=sampleids[controls[cid].pnum-1])
+                    if(controls[cid].pnum==0||j!=sampleids[pnum+controls[cid].pnum-1])
                     {
-                        sampleids[controls[cid].pnum]=j;
-                        wcount[controls[cid].pnum]=1;
+                        sampleids[pnum+controls[cid].pnum]=j;
+                        wcount[pnum+controls[cid].pnum]=1;
                         controls[cid].pnum++;
                     }
                     else
                     {
-                        wcount[controls[cid].pnum-1]++;
+                        wcount[pnum+controls[cid].pnum-1]++;
                     }
                     break;
                 }
@@ -227,11 +224,11 @@ int hostDownSampleIDs(int & startid, int * controlids, double * weights, int tmp
         }
     }
     startid=endid;
-    return controls[cid].pnum;
+    pnum+=controls[cid].pnum;
 }
 
 __global__
-void kernelDownSample(TrackerParticle *particles, int *sampleids, int * wcount, int pnum, TrackerParticle *tmpparticles)
+void kernelDownSample(TrackerParticle * particles, int * sampleids, int * wcount, int pnum, TrackerParticle * tmpparticles)
 {
     GetThreadID_1D(pid);
     if(pid>=pnum) return;
